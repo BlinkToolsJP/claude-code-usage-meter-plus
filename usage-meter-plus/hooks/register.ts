@@ -10,7 +10,7 @@
 // 「累計 約◯円」＝このセッション全体の API 換算コスト（ドル）を円にした目安。実際の請求額ではない。
 //   「今回 %」とは測り始めが違う別の数字なので、並べるが括弧ではつながない。
 //   為替は1日1回 open.er-api.com から取得し、失敗したら前回の値、それもなければ 150円（「・仮」を付ける）。
-// 幅が足りないときは 文脈 → レート注記 → 累計 → 「リセットまで」を「残り」 → 今回 の順に削る。
+// 幅が足りないときは 文脈 → 「リセットまで」を「残り」 → レート注記 → 累計 → 今回 の順に削る。
 
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
@@ -22,7 +22,6 @@ const FX_MAX_AGE_MS = 24 * 3600_000
 const FX_URL = 'https://open.er-api.com/v6/latest/USD'
 const FX_FALLBACK = 150
 const WINDOW_MS: Record<string, number> = { seven_day: 7 * 24 * 3600_000, five_hour: 5 * 3600_000 }
-const BAR_MAX: Record<string, number> = { seven_day: 24, five_hour: 14 }
 const BAR_MIN = 6
 
 type Limit = { kind: string; percentUsed: number; resetsAt?: string }
@@ -201,12 +200,12 @@ function row(Box: any, Text: any, label: string, kind: string, avail: number, ma
   const d = deltaOf(seen[kind])
   const deltaText = d != null ? `+${d.toFixed(1)}%` : null
 
-  // 幅が足りなければ、文脈 → レート注記 → 累計 → 「残り」表記 → 今回 の順に削る。
+  // 幅が足りなければ、文脈 → 「残り」表記 → レート注記 → 累計 → 今回 の順に削る。
   const variants = [
     { ctx: true, note: true, yen: true, word: 'リセットまで', delta: true },
     { ctx: false, note: true, yen: true, word: 'リセットまで', delta: true },
-    { ctx: false, note: false, yen: true, word: 'リセットまで', delta: true },
-    { ctx: false, note: false, yen: false, word: 'リセットまで', delta: true },
+    { ctx: false, note: true, yen: true, word: '残り', delta: true },
+    { ctx: false, note: false, yen: true, word: '残り', delta: true },
     { ctx: false, note: false, yen: false, word: '残り', delta: true },
     { ctx: false, note: false, yen: false, word: '残り', delta: false },
   ]
@@ -225,7 +224,8 @@ function row(Box: any, Text: any, label: string, kind: string, avail: number, ma
     const room = avail - width(label) - width(pctText) - width(tail)
     if (room >= BAR_MIN + 2 || v === variants[variants.length - 1]) {
       pick = v
-      barWidth = Math.max(BAR_MIN, Math.min(BAR_MAX[kind] ?? 14, room))
+      // 残った幅はすべてバーに使い、行を枠いっぱいまで埋める。
+      barWidth = Math.max(BAR_MIN, room)
       break
     }
   }
