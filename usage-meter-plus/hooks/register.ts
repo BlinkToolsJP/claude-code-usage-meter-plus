@@ -4,7 +4,7 @@
 //   週間  ██████████░░░░░░  41%    経過 56%    リセットまで 3日10時間    今回 +1.2%     文脈 34%
 //   5時間 █████████████░░░  83%    経過 40%    リセットまで 3時間0分     今回 +12.5%    累計 約386円（158円/ドル）
 //
-// 2段は表のように列をそろえ、余った幅はすべてバーに回して、左端から右端まで広げる。
+// 2段は表のように列をそろえ、項目の間隔は2マスで固定。余った幅はすべてバーが伸びて埋め、最後の列は右端にそろう。
 //
 // 「今回」＝このセッションを開いてから使用率が何ポイント増えたか。
 //   使用率はアカウント全体の値なので、同時に動かしている別セッションの分も混ざる。
@@ -25,6 +25,8 @@ const FX_URL = 'https://open.er-api.com/v6/latest/USD'
 const FX_FALLBACK = 150
 const WINDOW_MS: Record<string, number> = { seven_day: 7 * 24 * 3600_000, five_hour: 5 * 3600_000 }
 const BAR_MIN = 6
+// バーの文字の在庫。画面がどれだけ広くても足りる数を用意し、はみ出た分は隠す。
+const BAR_STOCK = 400
 
 type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 type Context = { percent?: number | null; tokens?: number | null; window?: number | null }
@@ -220,7 +222,7 @@ function buildRow(label: string, kind: string, main: boolean, v: Variant, seen: 
 }
 
 // 2段を表のようにそろえたとき、バーに使える幅を求める。入らなければ null。
-// 日本語の幅は多めに見積もるので、実際の画面では少し余裕が出る。その余りは配置（space-between）で吸収する。
+// 日本語の幅は多めに見積もるので、実際の画面では少し余裕が出る。その余りはバーが伸びて吸収する。
 export function planBar(rows: RowData[], avail: number): number | null {
   const labelW = Math.max(...rows.map(r => width(r.label)))
   const nCols = rows[0].cols.length
@@ -230,19 +232,16 @@ export function planBar(rows: RowData[], avail: number): number | null {
   const fixed = labelW + used.reduce((a, w) => a + w, 0) + MIN_GAP * (used.length + 1)
   const free = avail - fixed
   if (free < barMin) return null
-  // 余った幅はすべてバーに回す。項目の間隔は MIN_GAP と、日本語の幅の見積もり差の分だけ広がる。
+  // 実際のバーの幅は画面の配置で決まる（renderBand）。ここでは入るかどうかの目安を返す。
   return free
 }
 
 function renderBand(Box: any, Text: any, avail: number, seen: Tracks) {
   let rows: RowData[] = []
-  let barW: number | null = null
   for (const v of VARIANTS) {
     rows = [buildRow('週間', 'seven_day', true, v, seen), buildRow('5時間', 'five_hour', false, v, seen)]
-    barW = planBar(rows, avail)
-    if (barW != null) break
+    if (planBar(rows, avail) != null) break
   }
-  const bw = barW ?? BAR_MIN
   const cell = (pieces: Piece[], key: string) => Box({
     key,
     flexDirection: 'row',
@@ -254,26 +253,46 @@ function renderBand(Box: any, Text: any, avail: number, seen: Tracks) {
   const column = (cells: Piece[][], key: string, align: 'flex-start' | 'flex-end' = 'flex-start') => Box({
     key,
     flexDirection: 'column',
+    flexShrink: 0,
     alignItems: align,
     children: cells.map((c, i) => cell(c, String(i))),
   })
-  const columns = [
-    column(rows.map(r => [{ text: r.label, bold: r.main }]), 'label'),
-    column(rows.map(r => {
-      if (!r.bar) return [{ text: WAITING, dim: true }]
-      const filled = Math.round((r.bar.pct / 100) * bw)
-      return [
-        { text: '█'.repeat(filled), color: r.bar.color, bold: r.main },
-        { text: '░'.repeat(bw - filled), dim: true },
-      ]
-    }), 'bar'),
-  ]
+  // バーの一部分。flexGrow の比で幅が決まり、はみ出た文字は隠す。
+  const segment = (key: string, grow: number, char: string, props: object) => Box({
+    key,
+    width: 0,
+    minWidth: 0,
+    flexGrow: grow,
+    height: 1,
+    overflow: 'hidden',
+    children: [Text({ key: '0', ...props, children: char.repeat(BAR_STOCK) })],
+  })
+  // バーは残りの幅をすべて使う。塗りと空きを使用率の比で分けるので、どんな幅でも比率は正確。
+  const barColumn = Box({
+    key: 'bar',
+    flexDirection: 'column',
+    flexGrow: 1,
+    minWidth: BAR_MIN,
+    children: rows.map((r, i) => {
+      if (!r.bar) return cell([{ text: WAITING, dim: true }], String(i))
+      return Box({
+        key: String(i),
+        flexDirection: 'row',
+        width: '100%',
+        children: [
+          segment('on', r.bar.pct, '█', { color: r.bar.color, bold: r.main }),
+          segment('off', 100 - r.bar.pct, '░', { dimColor: true }),
+        ],
+      })
+    }),
+  })
+  const columns = [column(rows.map(r => [{ text: r.label, bold: r.main }]), 'label'), barColumn]
   rows[0].cols.forEach((_, i) => {
     if (rows.every(r => r.cols[i].length === 0)) return
     columns.push(column(rows.map(r => r.cols[i]), `c${i}`, i === 0 ? 'flex-end' : 'flex-start'))
   })
-  // 列を左端から右端まで均等に広げる。
-  return [Box({ key: 'band', flexDirection: 'row', width: '100%', justifyContent: 'space-between', children: columns })]
+  // 項目の間隔は MIN_GAP で固定。余りはすべてバーが吸収するので、最後の列は右端にそろう。
+  return [Box({ key: 'band', flexDirection: 'row', width: '100%', columnGap: MIN_GAP, children: columns })]
 }
 
 // 前回リセット〜次回リセットのうち、いま何%進んだか。
