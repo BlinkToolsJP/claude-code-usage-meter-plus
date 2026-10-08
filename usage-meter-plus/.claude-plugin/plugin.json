@@ -1,6 +1,6 @@
 {
   "name": "usage-meter-plus",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "週間・5時間の使用量に加え、このセッションでの消費（増加%と円換算の目安）をプロンプトの上に表示する。",
   "types": "./types/index.d.ts",
   "author": {
