@@ -1,8 +1,10 @@
 // Usage Meter Plus: 週間使用量と5時間使用量に加え、このセッションでの消費をプロンプトの上に表示する。
 // aikworks さんの usage-meter（MIT, https://github.com/aikworks/claude-code-usage-meter）をもとに改良。
 //
-//   週間  ████░░░░░░░░  41%  経過 56%  リセットまで 3日10時間   文脈 34%   今回 +1.2%
-//   5時間 ██████░░░░░░  83%  経過 40%  リセットまで 3時間0分   今回 +12.5%   累計 約386円（158円/ドル）
+//   週間  ██████████░░░░░░  41%    経過 56%    リセットまで 3日10時間    今回 +1.2%     文脈 34%
+//   5時間 █████████████░░░  83%    経過 40%    リセットまで 3時間0分     今回 +12.5%    累計 約386円（158円/ドル）
+//
+// 2段は表のように列をそろえ、余った幅はバーと項目の間隔に半分ずつ振り分けて、左端から右端まで埋める。
 //
 // 「今回」＝このセッションを開いてから使用率が何ポイント増えたか。
 //   使用率はアカウント全体の値なので、同時に動かしている別セッションの分も混ざる。
@@ -10,7 +12,7 @@
 // 「累計 約◯円」＝このセッション全体の API 換算コスト（ドル）を円にした目安。実際の請求額ではない。
 //   「今回 %」とは測り始めが違う別の数字なので、並べるが括弧ではつながない。
 //   為替は1日1回 open.er-api.com から取得し、失敗したら前回の値、それもなければ 150円（「・仮」を付ける）。
-// 幅が足りないときは 文脈 → 「リセットまで」を「残り」 → レート注記 → 累計 → 今回 の順に削る。
+// 幅が足りないときは 文脈 → 「リセットまで」を「残り」 → レート注記 → 累計 → 今回 の順に、2段そろえて削る。
 
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
@@ -69,10 +71,7 @@ export const register: Register = on => {
     return Box({
       flexDirection: 'column',
       paddingX: 1,
-      children: [
-        row(Box, Text, '週間  ', 'seven_day', avail, true, seen),
-        row(Box, Text, '5時間 ', 'five_hour', avail, false, seen),
-      ],
+      children: renderBand(Box, Text, avail, seen),
     })
   })
 }
@@ -172,100 +171,107 @@ function width(s: string): number {
   return w
 }
 
-function row(Box: any, Text: any, label: string, kind: string, avail: number, main: boolean, seen: Tracks) {
-  // 円は5時間の行にだけ付ける（セッション全体で1つの値なので）。
-  const yenText = !main && usd != null ? yen(usd, fxRate) : null
-  const noteText = rateNote(fxRate, fxFetched)
+type Piece = { text: string; dim?: boolean; bold?: boolean; color?: string }
+type Cell = Piece[]
+// 1段分のデータ。bar が null の段は、バーの位置に「取得待ち」を出す。
+type RowData = { label: string; main: boolean; bar: { pct: number; color: string } | null; cols: Cell[] }
+type Variant = { ctx: boolean; word: string; note: boolean; yen: boolean; delta: boolean }
+
+// 幅が足りなければ、文脈 → 「残り」表記 → レート注記 → 累計 → 今回 の順に削る（2段そろえて）。
+const VARIANTS: Variant[] = [
+  { ctx: true, word: 'リセットまで', note: true, yen: true, delta: true },
+  { ctx: false, word: 'リセットまで', note: true, yen: true, delta: true },
+  { ctx: false, word: '残り', note: true, yen: true, delta: true },
+  { ctx: false, word: '残り', note: false, yen: true, delta: true },
+  { ctx: false, word: '残り', note: false, yen: false, delta: true },
+  { ctx: false, word: '残り', note: false, yen: false, delta: false },
+]
+const MIN_GAP = 2
+const WAITING = '取得待ち'
+
+const cellWidth = (c: Cell) => c.reduce((w, p) => w + width(p.text), 0)
+const labelled = (name: string, value: string, extra: Piece[] = []): Cell =>
+  [{ text: `${name} `, dim: true }, { text: value }, ...extra]
+
+// 段ごとの列：[使用率%, 経過, リセットまで, 今回, 文脈 or 累計]。今回の列が上下でそろう。
+function buildRow(label: string, kind: string, main: boolean, v: Variant, seen: Tracks): RowData {
   const limit = limits.find(l => l.kind === kind)
+  const cols: Cell[] = [[], [], [], [], []]
+  // 円は5時間の段にだけ付ける（セッション全体で1つの値なので）。
+  if (!main && v.yen && usd != null) {
+    cols[4] = labelled('累計', yen(usd, fxRate), v.note ? [{ text: rateNote(fxRate, fxFetched), dim: true }] : [])
+  }
   if (!limit) {
-    const children = [
-      Text({ bold: main, children: label }),
-      Text({ dimColor: true, children: '取得待ち' }),
-    ]
-    if (yenText) {
-      children.push(Text({ dimColor: true, children: '   累計 ' }))
-      children.push(Text({ children: yenText }))
-      children.push(Text({ dimColor: true, children: noteText }))
-    }
-    return Box({ flexDirection: 'row', children })
+    return { label, main, bar: null, cols }
   }
   const pct = Math.max(0, Math.min(100, limit.percentUsed))
   const color = colorFor(pct)
-  const pctText = ` ${String(Math.round(pct)).padStart(3)}%`
+  cols[0] = [{ text: `${Math.round(pct)}%`, color, bold: true }]
   const elapsed = elapsedPct(limit, kind)
-  const left = remaining(limit.resetsAt)
-  const ctxPct = main && context && context.window
-    ? Math.round(context.percent ?? ((context.tokens ?? 0) / context.window) * 100)
-    : null
+  if (elapsed != null) cols[1] = labelled('経過', `${elapsed}%`)
+  cols[2] = [{ text: `${v.word} ${remaining(limit.resetsAt)}`, dim: true }]
   const d = deltaOf(seen[kind])
-  const deltaText = d != null ? `+${d.toFixed(1)}%` : null
-
-  // 幅が足りなければ、文脈 → 「残り」表記 → レート注記 → 累計 → 今回 の順に削る。
-  const variants = [
-    { ctx: true, note: true, yen: true, word: 'リセットまで', delta: true },
-    { ctx: false, note: true, yen: true, word: 'リセットまで', delta: true },
-    { ctx: false, note: true, yen: true, word: '残り', delta: true },
-    { ctx: false, note: false, yen: true, word: '残り', delta: true },
-    { ctx: false, note: false, yen: false, word: '残り', delta: true },
-    { ctx: false, note: false, yen: false, word: '残り', delta: false },
-  ]
-  let pick = variants[variants.length - 1]
-  let barWidth = BAR_MIN
-  for (const v of variants) {
-    const tail = tailText(
-      elapsed,
-      v.word,
-      left,
-      v.ctx ? ctxPct : null,
-      v.delta ? deltaText : null,
-      v.yen ? yenText : null,
-      v.yen && v.note ? noteText : null,
-    )
-    const room = avail - width(label) - width(pctText) - width(tail)
-    if (room >= BAR_MIN + 2 || v === variants[variants.length - 1]) {
-      pick = v
-      // 残った幅はすべてバーに使い、行を枠いっぱいまで埋める。
-      barWidth = Math.max(BAR_MIN, room)
-      break
-    }
+  if (v.delta && d != null) cols[3] = labelled('今回', `+${d.toFixed(1)}%`)
+  if (main && v.ctx && context && context.window) {
+    const ctxPct = Math.round(context.percent ?? ((context.tokens ?? 0) / context.window) * 100)
+    cols[4] = labelled('文脈', `${ctxPct}%`)
   }
-  const filled = Math.round((pct / 100) * barWidth)
-  const children = [
-    Text({ bold: main, children: label }),
-    Text({ color, bold: main, children: '█'.repeat(filled) }),
-    Text({ dimColor: true, children: '░'.repeat(barWidth - filled) }),
-    Text({ color, bold: true, children: pctText }),
-  ]
-  if (elapsed != null) {
-    children.push(Text({ dimColor: true, children: '  経過 ' }))
-    children.push(Text({ children: `${elapsed}%` }))
-  }
-  children.push(Text({ dimColor: true, children: `  ${pick.word} ${left}` }))
-  if (pick.ctx && ctxPct != null) {
-    children.push(Text({ dimColor: true, children: `   文脈 ${ctxPct}%` }))
-  }
-  if (pick.delta && deltaText) {
-    children.push(Text({ dimColor: true, children: '   今回 ' }))
-    children.push(Text({ children: deltaText }))
-  }
-  if (pick.yen && yenText) {
-    children.push(Text({ dimColor: true, children: '   累計 ' }))
-    children.push(Text({ children: yenText }))
-    if (pick.note) {
-      children.push(Text({ dimColor: true, children: noteText }))
-    }
-  }
-  return Box({ flexDirection: 'row', children })
+  return { label, main, bar: { pct, color }, cols }
 }
 
-// バーの右側に並ぶ文字列（幅の見積り用）。
-function tailText(elapsed: number | null, word: string, left: string, ctxPct: number | null, delta: string | null, yenText: string | null, noteText: string | null): string {
-  return (elapsed != null ? `  経過 ${elapsed}%` : '')
-    + `  ${word} ${left}`
-    + (ctxPct != null ? `   文脈 ${ctxPct}%` : '')
-    + (delta ? `   今回 ${delta}` : '')
-    + (yenText ? `   累計 ${yenText}` : '')
-    + (noteText ?? '')
+// 2段を表のようにそろえ、余った幅をバーと項目の間隔に振り分けて、左端から右端まで埋める。
+// 戻り値は段ごとの Piece の並び。
+export function layoutRows(rows: RowData[], avail: number): Piece[][] | null {
+  const labelW = Math.max(...rows.map(r => width(r.label)))
+  const nCols = rows[0].cols.length
+  const colW = Array.from({ length: nCols }, (_, i) => Math.max(...rows.map(r => cellWidth(r.cols[i]))))
+  // 使用率%の列はバーにくっつけ、それ以外の中身のある列だけを間隔で区切る。
+  const spread = colW.map((w, i) => i).filter(i => i > 0 && colW[i] > 0)
+  const barMin = rows.some(r => r.bar == null) ? Math.max(BAR_MIN, width(WAITING)) : BAR_MIN
+  const fixed = labelW + 1 + 1 + colW[0] + spread.reduce((a, i) => a + colW[i], 0) + MIN_GAP * spread.length
+  const free = avail - fixed
+  if (free < barMin) return null
+  const barW = Math.max(barMin, Math.floor(free / 2))
+  const rest = free - barW
+  const gaps = spread.map((_, k) => MIN_GAP + Math.floor(rest / Math.max(1, spread.length)) + (k < rest % Math.max(1, spread.length) ? 1 : 0))
+  // 列がないときは余りをすべてバーへ。
+  const barFinal = spread.length === 0 ? free : barW
+
+  return rows.map(r => {
+    const out: Piece[] = [{ text: r.label + ' '.repeat(labelW - width(r.label) + 1), bold: r.main }]
+    if (r.bar) {
+      const filled = Math.round((r.bar.pct / 100) * barFinal)
+      out.push({ text: '█'.repeat(filled), color: r.bar.color, bold: r.main })
+      out.push({ text: '░'.repeat(barFinal - filled), dim: true })
+    } else {
+      out.push({ text: WAITING + ' '.repeat(barFinal - width(WAITING)), dim: true })
+    }
+    // 使用率%は右寄せ。
+    out.push({ text: ' '.repeat(1 + colW[0] - cellWidth(r.cols[0])) }, ...r.cols[0])
+    spread.forEach((i, k) => {
+      const pad = k === 0 ? 0 : colW[spread[k - 1]] - cellWidth(r.cols[spread[k - 1]])
+      out.push({ text: ' '.repeat(pad + gaps[k]) }, ...r.cols[i])
+    })
+    return out
+  })
+}
+
+function renderBand(Box: any, Text: any, avail: number, seen: Tracks) {
+  let laid: Piece[][] | null = null
+  for (const v of VARIANTS) {
+    const rows = [buildRow('週間', 'seven_day', true, v, seen), buildRow('5時間', 'five_hour', false, v, seen)]
+    laid = layoutRows(rows, avail)
+    if (laid) break
+  }
+  if (!laid) {
+    // どうしても入らないほど狭いときは、最小の形で出す。
+    const v = VARIANTS[VARIANTS.length - 1]
+    laid = layoutRows([buildRow('週間', 'seven_day', true, v, seen), buildRow('5時間', 'five_hour', false, v, seen)], 10_000)!
+  }
+  return laid.map(pieces => Box({
+    flexDirection: 'row',
+    children: pieces.filter(p => p.text).map(p => Text({ dimColor: p.dim, bold: p.bold, color: p.color, children: p.text })),
+  }))
 }
 
 // 前回リセット〜次回リセットのうち、いま何%進んだか。
