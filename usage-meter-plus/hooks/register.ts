@@ -10,7 +10,7 @@
 // 「累計 約◯円」＝このセッション全体の API 換算コスト（ドル）を円にした目安。実際の請求額ではない。
 //   「今回 %」とは測り始めが違う別の数字なので、並べるが括弧ではつながない。
 //   為替は1日1回 open.er-api.com から取得し、失敗したら前回の値、それもなければ 150円（「・仮」を付ける）。
-// 幅が足りないときは 文脈 → レート注記 → 累計 → 「リセットまで」を「残り」 → 今回 の順に削る。
+// 幅が足りないときは 文脈 → 「リセットまで」を「残り」 → レート注記 → 累計 → 今回 の順に削る。
 
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
@@ -201,12 +201,12 @@ function row(Box: any, Text: any, label: string, kind: string, avail: number, ma
   const d = deltaOf(seen[kind])
   const deltaText = d != null ? `+${d.toFixed(1)}%` : null
 
-  // 幅が足りなければ、文脈 → レート注記 → 累計 → 「残り」表記 → 今回 の順に削る。
+  // 幅が足りなければ、文脈 → 「残り」表記 → レート注記 → 累計 → 今回 の順に削る。
   const variants = [
     { ctx: true, note: true, yen: true, word: 'リセットまで', delta: true },
     { ctx: false, note: true, yen: true, word: 'リセットまで', delta: true },
-    { ctx: false, note: false, yen: true, word: 'リセットまで', delta: true },
-    { ctx: false, note: false, yen: false, word: 'リセットまで', delta: true },
+    { ctx: false, note: true, yen: true, word: '残り', delta: true },
+    { ctx: false, note: false, yen: true, word: '残り', delta: true },
     { ctx: false, note: false, yen: false, word: '残り', delta: true },
     { ctx: false, note: false, yen: false, word: '残り', delta: false },
   ]
