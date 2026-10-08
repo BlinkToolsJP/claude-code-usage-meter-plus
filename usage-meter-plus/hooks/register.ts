@@ -4,7 +4,7 @@
 //   週間  ██████████░░░░░░  41%    経過 56%    リセットまで 3日10時間    今回 +1.2%     文脈 34%
 //   5時間 █████████████░░░  83%    経過 40%    リセットまで 3時間0分     今回 +12.5%    累計 約386円（158円/ドル）
 //
-// 2段は表のように列をそろえ、余った幅はバーと項目の間隔に半分ずつ振り分けて、左端から右端まで埋める。
+// 2段は表のように列をそろえ、余った幅はすべてバーに回して、左端から右端まで広げる。
 //
 // 「今回」＝このセッションを開いてから使用率が何ポイント増えたか。
 //   使用率はアカウント全体の値なので、同時に動かしている別セッションの分も混ざる。
@@ -219,59 +219,61 @@ function buildRow(label: string, kind: string, main: boolean, v: Variant, seen: 
   return { label, main, bar: { pct, color }, cols }
 }
 
-// 2段を表のようにそろえ、余った幅をバーと項目の間隔に振り分けて、左端から右端まで埋める。
-// 戻り値は段ごとの Piece の並び。
-export function layoutRows(rows: RowData[], avail: number): Piece[][] | null {
+// 2段を表のようにそろえたとき、バーに使える幅を求める。入らなければ null。
+// 日本語の幅は多めに見積もるので、実際の画面では少し余裕が出る。その余りは配置（space-between）で吸収する。
+export function planBar(rows: RowData[], avail: number): number | null {
   const labelW = Math.max(...rows.map(r => width(r.label)))
   const nCols = rows[0].cols.length
   const colW = Array.from({ length: nCols }, (_, i) => Math.max(...rows.map(r => cellWidth(r.cols[i]))))
-  // 使用率%の列はバーにくっつけ、それ以外の中身のある列だけを間隔で区切る。
-  const spread = colW.map((w, i) => i).filter(i => i > 0 && colW[i] > 0)
+  const used = colW.filter(w => w > 0)
   const barMin = rows.some(r => r.bar == null) ? Math.max(BAR_MIN, width(WAITING)) : BAR_MIN
-  const fixed = labelW + 1 + 1 + colW[0] + spread.reduce((a, i) => a + colW[i], 0) + MIN_GAP * spread.length
+  const fixed = labelW + used.reduce((a, w) => a + w, 0) + MIN_GAP * (used.length + 1)
   const free = avail - fixed
   if (free < barMin) return null
-  const barW = Math.max(barMin, Math.floor(free / 2))
-  const rest = free - barW
-  const gaps = spread.map((_, k) => MIN_GAP + Math.floor(rest / Math.max(1, spread.length)) + (k < rest % Math.max(1, spread.length) ? 1 : 0))
-  // 列がないときは余りをすべてバーへ。
-  const barFinal = spread.length === 0 ? free : barW
-
-  return rows.map(r => {
-    const out: Piece[] = [{ text: r.label + ' '.repeat(labelW - width(r.label) + 1), bold: r.main }]
-    if (r.bar) {
-      const filled = Math.round((r.bar.pct / 100) * barFinal)
-      out.push({ text: '█'.repeat(filled), color: r.bar.color, bold: r.main })
-      out.push({ text: '░'.repeat(barFinal - filled), dim: true })
-    } else {
-      out.push({ text: WAITING + ' '.repeat(barFinal - width(WAITING)), dim: true })
-    }
-    // 使用率%は右寄せ。
-    out.push({ text: ' '.repeat(1 + colW[0] - cellWidth(r.cols[0])) }, ...r.cols[0])
-    spread.forEach((i, k) => {
-      const pad = k === 0 ? 0 : colW[spread[k - 1]] - cellWidth(r.cols[spread[k - 1]])
-      out.push({ text: ' '.repeat(pad + gaps[k]) }, ...r.cols[i])
-    })
-    return out
-  })
+  // 余った幅はすべてバーに回す。項目の間隔は MIN_GAP と、日本語の幅の見積もり差の分だけ広がる。
+  return free
 }
 
 function renderBand(Box: any, Text: any, avail: number, seen: Tracks) {
-  let laid: Piece[][] | null = null
+  let rows: RowData[] = []
+  let barW: number | null = null
   for (const v of VARIANTS) {
-    const rows = [buildRow('週間', 'seven_day', true, v, seen), buildRow('5時間', 'five_hour', false, v, seen)]
-    laid = layoutRows(rows, avail)
-    if (laid) break
+    rows = [buildRow('週間', 'seven_day', true, v, seen), buildRow('5時間', 'five_hour', false, v, seen)]
+    barW = planBar(rows, avail)
+    if (barW != null) break
   }
-  if (!laid) {
-    // どうしても入らないほど狭いときは、最小の形で出す。
-    const v = VARIANTS[VARIANTS.length - 1]
-    laid = layoutRows([buildRow('週間', 'seven_day', true, v, seen), buildRow('5時間', 'five_hour', false, v, seen)], 10_000)!
-  }
-  return laid.map(pieces => Box({
+  const bw = barW ?? BAR_MIN
+  const cell = (pieces: Piece[], key: string) => Box({
+    key,
     flexDirection: 'row',
-    children: pieces.filter(p => p.text).map(p => Text({ dimColor: p.dim, bold: p.bold, color: p.color, children: p.text })),
-  }))
+    children: pieces.length
+      ? pieces.map((p, i) => Text({ key: String(i), dimColor: p.dim, bold: p.bold, color: p.color, children: p.text }))
+      : [Text({ key: '0', children: ' ' })],
+  })
+  // 列ごとに縦の Box を作り、上下の段を同じ列に入れる。こうすると文字幅に関係なく上下がそろう。
+  const column = (cells: Piece[][], key: string, align: 'flex-start' | 'flex-end' = 'flex-start') => Box({
+    key,
+    flexDirection: 'column',
+    alignItems: align,
+    children: cells.map((c, i) => cell(c, String(i))),
+  })
+  const columns = [
+    column(rows.map(r => [{ text: r.label, bold: r.main }]), 'label'),
+    column(rows.map(r => {
+      if (!r.bar) return [{ text: WAITING, dim: true }]
+      const filled = Math.round((r.bar.pct / 100) * bw)
+      return [
+        { text: '█'.repeat(filled), color: r.bar.color, bold: r.main },
+        { text: '░'.repeat(bw - filled), dim: true },
+      ]
+    }), 'bar'),
+  ]
+  rows[0].cols.forEach((_, i) => {
+    if (rows.every(r => r.cols[i].length === 0)) return
+    columns.push(column(rows.map(r => r.cols[i]), `c${i}`, i === 0 ? 'flex-end' : 'flex-start'))
+  })
+  // 列を左端から右端まで均等に広げる。
+  return [Box({ key: 'band', flexDirection: 'row', width: '100%', justifyContent: 'space-between', children: columns })]
 }
 
 // 前回リセット〜次回リセットのうち、いま何%進んだか。
