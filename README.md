@@ -15,7 +15,7 @@ Claude Code の入力欄の上に、**週間・5時間の使用量**と、**こ�
 
 Claude Code に次の文をそのまま送ってください。
 
-> `kikutani44-hash/claude-code-usage-meter-plus` をマーケットプレイスに追加して、`usage-meter-plus` をユーザー用プラグインとしてインストールして。
+> `BlinkToolsJP/claude-code-usage-meter-plus` をマーケットプレイスに追加して、`usage-meter-plus` をユーザー用プラグインとしてインストールして。
 
 終わったら**新しいセッションを開く**と表示されます。
 

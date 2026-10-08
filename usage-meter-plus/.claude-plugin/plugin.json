@@ -1,9 +1,9 @@
 {
   "name": "usage-meter-plus",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "週間・5時間の使用量と、このセッションで使用率がどれだけ増えたかをプロンプトの上に表示する。",
   "types": "./types/index.d.ts",
   "author": {
-    "name": "kikutani44-hash"
+    "name": "BlinkToolsJP"
   }
 }

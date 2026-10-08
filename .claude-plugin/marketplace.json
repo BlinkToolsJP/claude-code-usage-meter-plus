@@ -2,7 +2,7 @@
   "name": "usage-meter-plus-market",
   "description": "Claude Code の週間・5時間の使用量と、このセッションでの増加分を表示する Mod「usage-meter-plus」の配布用マーケットプレイス",
   "owner": {
-    "name": "kikutani44-hash"
+    "name": "BlinkToolsJP"
   },
   "plugins": [
     {
