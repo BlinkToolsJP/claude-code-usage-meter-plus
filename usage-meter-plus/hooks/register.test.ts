@@ -20,7 +20,7 @@ test('ドルを円の目安にする', () => {
   expect(yen(10, 149.6)).toBe('約1,496円')
 })
 
-test('レート注記は取得済みなら自動取得、未取得なら仮', () => {
-  expect(rateNote(158.1, true)).toBe('（1ドル=158円・自動取得）')
-  expect(rateNote(150, false)).toBe('（1ドル=150円・仮）')
+test('レート注記は取得済みならレートだけ、未取得なら仮を付ける', () => {
+  expect(rateNote(158.1, true)).toBe('（158円/ドル）')
+  expect(rateNote(150, false)).toBe('（150円/ドル・仮）')
 })
