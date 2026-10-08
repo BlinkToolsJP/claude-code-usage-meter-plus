@@ -1,12 +1,14 @@
 {
   "name": "usage-meter-plus-market",
-  "description": "Claude Code の週間・5時間の使用量と、このセッションでの消費を表示する Mod「usage-meter-plus」の配布用マーケットプレイス",
-  "owner": { "name": "kikutani44-hash" },
+  "description": "Claude Code の週間・5時間の使用量と、このセッションでの増加分を表示する Mod「usage-meter-plus」の配布用マーケットプレイス",
+  "owner": {
+    "name": "kikutani44-hash"
+  },
   "plugins": [
     {
       "name": "usage-meter-plus",
       "source": "./usage-meter-plus",
-      "description": "週間・5時間の使用量と、このセッションでの消費（%と円の目安）をプロンプトの上に表示する"
+      "description": "週間・5時間の使用量と、このセッションでの増加分（%）をプロンプトの上に表示する"
     }
   ]
 }

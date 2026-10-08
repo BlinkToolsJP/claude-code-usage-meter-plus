@@ -1,7 +1,7 @@
 {
   "name": "usage-meter-plus",
-  "version": "0.8.1",
-  "description": "週間・5時間の使用量に加え、このセッションでの消費（増加%と円換算の目安）をプロンプトの上に表示する。",
+  "version": "0.9.0",
+  "description": "週間・5時間の使用量と、このセッションで使用率がどれだけ増えたかをプロンプトの上に表示する。",
   "types": "./types/index.d.ts",
   "author": {
     "name": "kikutani44-hash"
